@@ -4,7 +4,9 @@ library(tidyverse)
 library(tm)
 library(qdap)
 library(textstem)
+library(stringi)
 library(RWeka)
+#library()
 # library() look at ollama stuff
 # Lib
 
@@ -15,21 +17,42 @@ cleaned_data <- import_data %>%
   filter(!is.na(overall_rating)) %>% # Filter to ensure zero missing data in outcome
   select(overall_rating, headline, pros, cons) # In an actual project I'd keep the other data, but sisnce it isnt needed here I only selected necisary variables to reduce processing time.
 
+
 # Maybe change sections later for the below
 emoji_transformer <- function(x) { # Dataset contains significant enough emjoi use to want transformation of at least the more common or more meaningfully used emojis. Built function to replace emojis unicode with the emoji names
+  x <- stri_replace_all_regex(x, "[\U0001F3FB-\U0001F3FF]", "")
+  
   patterns <- c(
-    "\\x{1F44D}" = "thumbs up",
-    "\\x{ }" = "thumbs down",
-    "\\x{ }" = "okay",
-    "\\x{1F525}" = "fire",
-    "\\x{ }" = "smile",
-    "\\x{ }" = "sad",
-    "\\x{ }" = "scared",
-    "\\x{ }" = " ",
+    "\U0001F44D" = "thumbs up ", # For each transform unicode to name and add space to the to avoid multiple words smooshed together for mutiple emoji use
+    "\U0001F44E" = "thumbs down ",
+    "\U0001F44C" = "okay ",
+    "\U0001F525" = "fire",
+    
+    "\U0001F60A" = "smile ",
+    "\U0001F60C" = "smile ",
+    "\U0001F601" = "smile ",
+    "\U0001F642" = "smile ",
+    
+    "\U0001F61E" = "frown ",
+    "\U0001F615" = "frown ",
+    "\U0001F641" = "frown "
   )
   
-  sapply(x, emoji_transformer) # determin if this should actually be a for loop or one of the apply family
+  for (p in names(patterns)) {
+    x <- stri_replace_all_fixed(x, p, patterns[[p]])
+  }
+  
+  return(x) 
 }
+
+# Test <- cleaned_data %>%
+#   mutate(headline = emoji_transformer(cleaned_data$headline)) Tested functionality
+
+
+
+
+
+
 
 headline_corpus_original <- VCorpus(VectorSource(cleaned_data$headline))
 
@@ -71,6 +94,6 @@ compare_them <- function(x, y) { # make comarison function
 
 compare_them(headline_corpus_original, headline_corpus) # apply function
 
-
+# DO EMBEDDINGS FOR EACH COLOUMN AND THEN ADDED TOPICS, AND EMBEDDINGS AS COLOUMNS to DATASET!!!!!!!!!!!!!!!!!!!
 
 # Analysis
