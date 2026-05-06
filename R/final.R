@@ -110,11 +110,6 @@ review_corpus_original <- VCorpus(VectorSource(processed_data$review_processed))
 
 
 
-
-
-
-
-
 # use comparison code maybe delete maybe comment out afterwards
 
 # compare_them <- function(x, y) { # make comarison function
