@@ -243,15 +243,15 @@ full_data_tbl <- topics_tokens_tbl %>%
   select(-original, -doc_id, -probability, -topic_label) # Remove all variables not used in the prediction. I left token count in as a controll for the token models
 
 # saveRDS(full_data_tbl, "../out/data.RDS")
-#readRDS(full_data_tbl, "../out/data.RDS")
+full_data_tbl <- readRDS("../out/data.RDS")
 # Analysis
 
-# model_test_data <- full_data_tbl %>% head(100)
+model_test_data <- full_data_tbl %>% head(20)
 
 
-train_index  <- createDataPartition(full_data_tbl$overall_rating, p = 0.75, list = FALSE) # Partition data!!!!!!!!!!!!!! CHANGE THE MODEL AFTER TESTING
-training_data <- full_data_tbl[train_index, ] # Create training dataset
-test_data  <- full_data_tbl[-train_index, ] # Create holdout data
+train_index  <- createDataPartition(model_test_data$overall_rating, p = 0.75, list = FALSE) # Partition data!!!!!!!!!!!!!! CHANGE THE MODEL AFTER TESTING
+training_data <- model_test_data[train_index, ] # Create training dataset
+test_data  <- model_test_data[-train_index, ] # Create holdout data
 
 
 cross_val_control <- trainControl( # Create standard CV
@@ -271,15 +271,15 @@ token_embed_formula <- overall_rating ~ . - topic
 topic_embed_formula <- overall_rating ~ .  - token_count -work:product
 token_topic_embed_formula <- overall_rating ~ .
 
-formulas <- list( # Couldnt figure out why i couldnt get the formulas working inside the list
-  token = token_formula,
-  topic = topic_formula,
-  embeddings = embeddings_formula,
-  token_topic = token_topic_formula,
-  token_embed = token_embed_formula,
-  topic_embed = topic_embed_formula,
-  token_topic_embed = token_topic_embed_formula
-)
+# formulas <- list( # Couldnt figure out why i couldnt get the formulas working inside the list
+#   token = token_formula,
+#   topic = topic_formula,
+#   embeddings = embeddings_formula,
+#   token_topic = token_topic_formula,
+#   token_embed = token_embed_formula,
+#   topic_embed = topic_embed_formula,
+#   token_topic_embed = token_topic_embed_formula
+# )
 
 
 # Define MTRY Values for each model
@@ -291,15 +291,15 @@ formulas <- list( # Couldnt figure out why i couldnt get the formulas working in
 # topic_embeddings_mtry <-  c(256, 384, 513)
 # token_topic_embeddings_mtry <- c(289, 434, 579)
 
-mtry_vals <- list(
-  token = c(33, 50, 67),
-  topic = 1,
-  embeddings = c(256, 384, 512),
-  token_topic = c(33, 50, 67),
-  token_embed = c(289, 434, 578),
-  topic_embed = c(256, 384, 513),
-  token_topic_embed = c(289, 434, 579)
-)
+
+token_mtry <- c(33, 50, 67)
+topic_mtry <- 1
+embed_mtry <- c(256, 384, 512)
+token_topic_mtry <- c(33, 50, 67)
+token_embed_mtry <- c(289, 434, 578)
+topic_embed_mtry <- c(256, 384, 513)
+token_topic_embed_mtry <- c(289, 434, 579)
+
 
 
 # Models
@@ -347,34 +347,91 @@ run_rf <- function(formula, mtry_vals) {
 # embeddings vs tokens
 # topics vs tokens
 
-
-
-extract_results <- function(model_obj, model_name, predictor_name) {
-  model_obj$results %>%
-    summarise(RMSE = min(RMSE), Rsquared = max(Rsquared), MAE = min(MAE)) %>%
-    mutate(model = model_name, predictors = predictor_name)
-}
-
-lm_results <- map_dfr(names(formulas), function(pred) {
-  extract_results(run_lm(formulas[[pred]]), "lm", pred)
-})
-
+# LM models
+model1 <- run_lm(token_formula)
+model2 <- run_lm(topic_formula)
+model3 <- run_lm(embeddings_formula)
+model4 <- run_lm(token_topic_formula)
+model5 <- run_lm(token_embed_formula)
+model6 <- run_lm(topic_embed_formula)
+model7 <- run_lm(token_topic_embed_formula)
 
 lc3 <-makeCluster(n_cores)
 
 registerDoParallel(lc3)
 
-elastic_results <- map_dfr(names(formulas), function(pred) {
-  extract_results(run_elastic(formulas[[pred]]), "elastic", pred)
-})
+# Elastic net models
+model8 <- run_elastic(token_formula)
+model9 <- run_elastic(topic_formula)
+model10 <- run_elastic(embeddings_formula)
+model11 <- run_elastic(token_topic_formula)
+model12 <- run_elastic(token_embed_formula)
+model13 <- run_elastic(topic_embed_formula)
+model14 <- run_elastic(token_topic_embed_formula)
 
-rf_results <- map_dfr(names(formulas), function(pred) {
-  extract_results(run_rf(formulas[[pred]], mtry_vals[[pred]]), "rf", pred)
-})
+# Random forest models
+model15 <- run_rf(token_formula, token_mtry)
+model16 <- run_rf(topic_formula, topic_mtry)
+model17 <- run_rf(embeddings_formula, embed_mtry)
+model18 <- run_rf(token_topic_formula, token_topic_mtry)
+model19 <- run_rf(token_embed_formula, token_embed_mtry)
+model20 <- run_rf(topic_embed_formula, topic_embed_mtry)
+model21 <- run_rf(token_topic_embed_formula, token_topic_embed_mtry)
 
 stopCluster(lc3)
 
 registerDoSEQ() 
 
-results_tbl <- bind_rows(lm_results, elastic_results, rf_results)
 
+extract_results <- function(model_obj, model_name, predictor_name) {
+  model_obj$results %>%
+    summarise(cv_RMSE = min(RMSE), cv_Rsquared = max(Rsquared)) %>%
+    mutate(model = model_name, predictors = predictor_name)
+}
+
+
+
+# Check later
+models <- list(model1, model2, model3, model4, model5, model6, model7,
+               model8, model9, model10, model11, model12, model13, model14,
+               model15, model16, model17, model18, model19, model20, model21)
+
+cv_results_tbl <- tibble(
+  model = c(rep("lm", 7), rep("elastic", 7), rep("rf", 7)),
+  predictors = rep(c("token", "topic", "embeddings", "token_topic", "token_embed", "topic_embed", "token_topic_embed"), 3),
+  cv_Rsquared = map_dbl(models, ~ max(.x$results$Rsquared))
+)
+
+ho_results_tbl <- tibble(
+  model = c(rep("lm", 7), rep("elastic", 7), rep("rf", 7)),
+  predictors = rep(c("token", "topic", "embeddings", "token_topic", "token_embed", "topic_embed", "token_topic_embed"), 3),
+  ho_Rsquared = map_dbl(models, ~ cor(predict(.x, newdata = test_data, na.action = na.pass), test_data$overall_rating)^2)
+)
+
+
+
+
+
+
+# extract_results <- function(model_obj, model_name, predictor_name) {
+#   model_obj$results %>%
+#     summarise(RMSE = min(RMSE), Rsquared = max(Rsquared), MAE = min(MAE)) %>%
+#     mutate(model = model_name, predictors = predictor_name)
+# }
+# 
+# lm_results <- map_dfr(names(formulas), function(pred) {
+#   extract_results(run_lm(formulas[[pred]]), "lm", pred)
+# })
+
+
+
+# 
+# results_tbl <- bind_rows(lm_results, elastic_results, rf_results)
+
+# elastic_results <- map_dfr(names(formulas), function(pred) {
+#   extract_results(run_elastic(formulas[[pred]]), "elastic", pred)
+# })
+# 
+# rf_results <- map_dfr(names(formulas), function(pred) {
+#   extract_results(run_rf(formulas[[pred]], mtry_vals[[pred]]), "rf", pred)
+# })
