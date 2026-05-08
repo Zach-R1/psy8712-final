@@ -97,17 +97,10 @@ stopCluster(cl)
 processed_data <- cleaned_data %>%
   mutate(review_processed = unlist(results)) # WHAT ID DID and did not -select orignial reviews coloumn as i wanted easy access to compare the text pre and post processing
 
-# write_csv(processed_data, "../data/processed_data.csv") # Save processing time in case of R restart during development errors crashed some of my previous runs
-
-# processed_data <- read_csv("../data/processed_data.csv")
 
 # Containerize
 review_corpus <- VCorpus(VectorSource(processed_data$review_processed))
 
-
-
-
-# Plan: dtm, dtmslim, see if you should add additional stop words, model with tokens, and topic, then do embeddings POST, do the rest of the modeling, answer questions.
 
 
 # dtm
@@ -118,47 +111,22 @@ review_dtm <- DocumentTermMatrix( # make dtm
   control = list(tokenize = my_tokenizer))
 
 
-# saveRDS(review_dtm, "../data/review_dtm.rds") # Save in case of R shut down
-#review_dtm <- review_dtm <- readRDS("../data/review_dtm.rds")
-
-# # doc_ids <- sapply(review_corpus, meta, "id") may not need anymore
-# tic()
-# names(review_corpus) <- processed_data$doc_id
-# toc()
 #slim_dtm
 review_slim_dtm <- removeSparseTerms(review_dtm, .9999) # Removed sparce terms with a cutoff that gave me a ratio between 3:1 and 2:1 based on the below commented out code 
 
 # REDO THE ABOVE COMMENTS@@!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-N <- nrow(review_dtm)
-N
-
-lower_k <- N / 3
-upper_k <- N / 2
-lower_k
-upper_k
-
-k <- ncol(review_slim_dtm)
-k
-N / k
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Saved not becuase this step 
-
-
-# OH OH FOR EMBEDDING CALL MAKE A SEPREATE DATA TABLE WITH ONLY A COUPLE REVIEWS TO TEST AND THEN DO IT WITH THE FULL DATA BOOM!!!!
-
+# N <- nrow(review_dtm)
+# N
+# 
+# lower_k <- N / 3   maybe delete and just comment!!!!!!!!!!!!!!!!!!!!!!
+# upper_k <- N / 2
+# lower_k
+# upper_k
+# 
+# k <- ncol(review_slim_dtm)
+# k
+# N / k
 
 
 # Analysis
@@ -188,8 +156,6 @@ topic_model <- stm(dtm_stm$documents, # fit the final model
                    verbose = FALSE)
 
 
-####START HERE!!!!!!!!!!!!!!!!
-# saveRDS(topic_model, "../data/topic_model.rds")
 
 
 labelTopics(topic_model, n = 6) # Looking at this if I could do this project fully with best practices I'd add more stop words like I'd need to think about whether to remove good and great. They don't see very informative on, but appear useful in bigrams.
@@ -247,8 +213,6 @@ topics_tokens_tbl <- topics_tbl %>%
 
 # embeddings DONT FORGET TO OPEN OLLAMA in cmd
 
-clean_data_filtered <- cleaned_data %>% filter(doc_id %in% docs_kept)
-
 embed_cols <- str_c("emb_", 1:768)
 
 
@@ -269,35 +233,76 @@ embedding_df <- imap(cleaned_data$review, function(text, i) {
   mutate(doc_id = cleaned_data$doc_id) %>%
   select(doc_id, everything())
 
-embedding_df <- embedding_df %>% filter(doc_id %in% docs_kept) # To fix the above!!!!!!!!!!!!!!!!!!!!!! 50000 to 49998 as with others
+embedding_df_filtered <- embedding_df %>% filter(doc_id %in% docs_kept) # To fix the above!!!!!!!!!!!!!!!!!!!!!! 50000 to 49998 as with others
 
 
 
 
 full_data_tbl <- topics_tokens_tbl %>% 
-  left_join(embedding_df, by = "doc_id") %>%
+  left_join(embedding_df_filtered, by = "doc_id") %>%
   select(-original, -doc_id, -probability, -topic_label) # Remove all variables not used in the prediction. I left token count in as a controll for the token models
 
-
-
+# saveRDS(full_data_tbl, "../out/data.RDS")
+#readRDS(full_data_tbl, "../out/data.RDS")
 # Analysis
 
-model_test_data <- full_data_tbl %>% head(100)
+# model_test_data <- full_data_tbl %>% head(100)
 
 
-train_index  <- createDataPartition(model_test_data$ , p = 0.75, list = FALSE) # Partition data!!!!!!!!!!!!!! CHANGE THE MODEL AFTER TESTING
-training_data <- model_tbl[train_index, ] # Create training dataset
-test_data  <- model_tbl[-train_index, ] # Create holdout data
+train_index  <- createDataPartition(full_data_tbl$overall_rating, p = 0.75, list = FALSE) # Partition data!!!!!!!!!!!!!! CHANGE THE MODEL AFTER TESTING
+training_data <- full_data_tbl[train_index, ] # Create training dataset
+test_data  <- full_data_tbl[-train_index, ] # Create holdout data
 
 
 cross_val_control <- trainControl( # Create standard CV
   method = "cv",
-  number = 10,
+  number = 3, # Reduced from 10 to reduce processing time, but would normally do 10 as the standard
   search = "random",
   verboseIter = TRUE
 )
 
-# 1 LM token
+# Formulas  work:product
+# Define predictor sets
+token_formula <- overall_rating ~ . - topic - emb_1:emb_768
+topic_formula <- overall_rating ~ . - emb_1:emb_768 - token_count - work:product
+embeddings_formula <- overall_rating ~ .  - token_count - topic - work:product
+token_topic_formula <- overall_rating ~ . - emb_1:emb_768
+token_embed_formula <- overall_rating ~ . - topic
+topic_embed_formula <- overall_rating ~ .  - token_count -work:product
+token_topic_embed_formula <- overall_rating ~ .
+
+formulas <- list( # Couldnt figure out why i couldnt get the formulas working inside the list
+  token = token_formula,
+  topic = topic_formula,
+  embeddings = embeddings_formula,
+  token_topic = token_topic_formula,
+  token_embed = token_embed_formula,
+  topic_embed = topic_embed_formula,
+  token_topic_embed = token_topic_embed_formula
+)
+
+
+# Define MTRY Values for each model
+# token_mtry <- c(33, 50, 67)
+# topic_mtry <- 1
+# embeddings_mtry <- c(256, 384, 512)
+# token_topic_mtry <- c(33, 50, 67)
+# token_embeddings_mtry <- c(289, 434, 578)
+# topic_embeddings_mtry <-  c(256, 384, 513)
+# token_topic_embeddings_mtry <- c(289, 434, 579)
+
+mtry_vals <- list(
+  token = c(33, 50, 67),
+  topic = 1,
+  embeddings = c(256, 384, 512),
+  token_topic = c(33, 50, 67),
+  token_embed = c(289, 434, 578),
+  topic_embed = c(256, 384, 513),
+  token_topic_embed = c(289, 434, 579)
+)
+
+
+# Models
 run_lm <- function(formula) {
   train(
     formula, 
@@ -307,7 +312,7 @@ run_lm <- function(formula) {
     preProcess = c("zv", "center", "scale", "medianImpute"), 
     trControl = cross_val_control)}
 
-run_elastic <- run_model2 <- function(formula) { 
+run_elastic <- function(formula) { 
   train(
     formula, 
     training_data, 
@@ -316,7 +321,7 @@ run_elastic <- run_model2 <- function(formula) {
     preProcess = c("zv", "center", "scale", "medianImpute"), 
     tuneGrid = expand.grid( 
       alpha = c(0,1), 
-      lambda = seq(0.001, 0.1, length = 10) 
+      lambda = seq(0.001, 0.1, length = 10) # Wanted to apply a reasonable range of regularization
   ),
   trControl = cross_val_control
 )}
@@ -341,11 +346,35 @@ run_rf <- function(formula, mtry_vals) {
 
 # embeddings vs tokens
 # topics vs tokens
-# 
 
 
 
+extract_results <- function(model_obj, model_name, predictor_name) {
+  model_obj$results %>%
+    summarise(RMSE = min(RMSE), Rsquared = max(Rsquared), MAE = min(MAE)) %>%
+    mutate(model = model_name, predictors = predictor_name)
+}
 
-# LM, ELastice, RF
+lm_results <- map_dfr(names(formulas), function(pred) {
+  extract_results(run_lm(formulas[[pred]]), "lm", pred)
+})
 
-# Was between Lm and XGboost
+
+lc3 <-makeCluster(n_cores)
+
+registerDoParallel(lc3)
+
+elastic_results <- map_dfr(names(formulas), function(pred) {
+  extract_results(run_elastic(formulas[[pred]]), "elastic", pred)
+})
+
+rf_results <- map_dfr(names(formulas), function(pred) {
+  extract_results(run_rf(formulas[[pred]], mtry_vals[[pred]]), "rf", pred)
+})
+
+stopCluster(lc3)
+
+registerDoSEQ() 
+
+results_tbl <- bind_rows(lm_results, elastic_results, rf_results)
+
