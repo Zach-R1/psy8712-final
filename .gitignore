@@ -3,3 +3,4 @@
 .RData
 .Ruserdata
 data/glassdoor_reviews.csv
+data/intermediate_tbl.csv
