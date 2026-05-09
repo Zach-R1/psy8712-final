@@ -243,6 +243,7 @@ full_data_tbl <- topics_tokens_tbl %>%
   left_join(embedding_df_filtered, by = "doc_id") %>%
   select(-original, -doc_id, -probability, -topic_label) # Remove all variables not used in the prediction. I left token count in as a controll for the token models
 
+
 # saveRDS(full_data_tbl, "../out/data.RDS")
 # full_data_tbl <- readRDS("../out/data.RDS")
 
@@ -275,7 +276,6 @@ token_data <- training_data %>% select(overall_rating, all_of(token_cols))
 # Subsets
 token_data <- training_data[, c("overall_rating", token_cols)]
 topic_data <- training_data[, c("overall_rating", "topic", "dummy")]
-# topic_data <- training_data[, c("overall_rating", "topic"), drop = FALSE]
 embed_data <- training_data[, c("overall_rating", embed_vars)]
 token_topic_data <- training_data[, c("overall_rating", "topic", token_cols)]
 token_embed_data <- training_data[, c("overall_rating", token_cols, embed_vars)]
@@ -359,7 +359,7 @@ run_rf <- function(data, mtry_vals) {
     tuneGrid = expand.grid(
       mtry = mtry_vals,
       splitrule = c("variance", "extratrees"),
-      min.node.size = 5
+      min.node.size = 20 # i'd normally do 5, but my laptop was hot enough to be concerning so I reduced it. I realize that I am sacrificing
     ),
     trControl = cross_val_control,
     num.trees = 200
@@ -393,9 +393,9 @@ model13 <- run_elastic(topic_embed_data)
 model14 <- run_elastic(token_topic_embed_data)
 
 # Random forest models
-model15 <- run_rf(token_data, token_mtry)
-model16 <- run_rf(topic_data, topic_mtry)
-model17 <- run_rf(embed_data, embed_mtry)
+model15 <- run_rf(token_data, token_mtry) # redo
+model16 <- run_rf(topic_data, topic_mtry) # redo
+model17 <- run_rf(embed_data, embed_mtry) # redo
 model18 <- run_rf(token_topic_data, token_topic_mtry)
 model19 <- run_rf(token_embed_data, token_embed_mtry)
 model20 <- run_rf(topic_embed_data, topic_embed_mtry)
@@ -415,9 +415,10 @@ models <- list(model1, model2, model3, model4, model5, model6, model7,
 cv_results_tbl <- tibble(
   model = c(rep("lm", 7), rep("elastic", 7), rep("rf", 7)),
   predictors = rep(c("token", "topic", "embeddings", "token_topic", "token_embed", "topic_embed", "token_topic_embed"), 3),
-  cv_Rsquared = map_dbl(models, ~ max(.x$results$Rsquared)),
-  cv_RMSE = map_dbl(models, ~ min(.x$results$RMSE))
+  cv_Rsquared = map_dbl(models, ~ max(.x$results$Rsquared, na.rm = TRUE)),
+  cv_RMSE = map_dbl(models, ~ min(.x$results$RMSE, na.rm = TRUE))
 )
+
 
 ho_results_tbl <- tibble(
   model = c(rep("lm", 7), rep("elastic", 7), rep("rf", 7)),
@@ -431,6 +432,8 @@ ho_results_tbl <- tibble(
 
 final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model", "predictors"))
 
+write.csv(final_results_tbl, "../out/final_results.csv")
+
 # RQ1. Does the use of embeddings (using the nomic-embed-text LLM embeddings model) improve prediction of satisfaction beyond a rigorous tokenization strategy?
 
 
@@ -442,4 +445,6 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 
 #   RQ4. What is the best prediction of overall job satisfaction achievable using text reviews as source data?
 
+
+save.image("../out/workspace.RData")
 
