@@ -432,7 +432,7 @@ ho_results_tbl <- tibble(
 
 final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model", "predictors"))
 
-write.csv(final_results_tbl, "../out/final_results.csv")
+# write.csv(final_results_tbl, "../out/final_results.csv") Saved for my benefit might switch to RDS later since it wont be in the workpace image!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 # RQ1. Does the use of embeddings (using the nomic-embed-text LLM embeddings model) improve prediction of satisfaction beyond a rigorous tokenization strategy?
 
