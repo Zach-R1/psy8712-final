@@ -30,13 +30,12 @@ cleaned_data <- import_data %>% # Chose to clean through one long pipe for effic
 
 
 
-
 # Unite note: This was a hard decision. Originally I planned to make three separate corpora for headline, pros, and cons. Since the goal of the assignment is the best model in terms of prediction I chose not to. It'd help with interpretability, but couldn't find any info suggesting it would help prediction. So the additional effort and processing time didnt seem worth it This also deals with the issue later in the process where the transformation process would leave blanks in headline so one less thing to fix
 
 
 # Note: All of the below code from here to the topic_model was made originally to be able to take the full dataset, but timewise it wound up being unfeasable to continue that way. I maintained the code as is becuase it was more efficient.
 
-# Dataset contains a decent enough emoji use that I didnt think it'd hurt to build a seperte transformation function. Also I wanted to see if I could get it to work.
+# Dataset contains a decent enough emoji use that I didnt think it'd hurt to build a seperte transformation function. But mostly I wanted to see if I could get it to work.
 
 emoji_transformer <- function(x) {
   x <- stri_replace_all_regex(x, "[\U0001F3FB-\U0001F3FF]", "") # Remove variants of emojis to only leave base version (thumbs up skin tone tags would lead them to be read as different emojis otherwise). Ignore low base rate emojis as sparsity removal should deal with them. Used regex to search through a range which fixed wouldnt do
@@ -77,7 +76,7 @@ clusterExport(cl, c("emoji_transformer", "sw_pattern")) # Exported built functio
 
 chunks <- split(cleaned_data$review, cut(seq_along(cleaned_data$review), n_cores)) # chunk the dataset sequentially in equal parts to give to each seperate core
 
-results <- parLapply(cl, chunks, function(x) { # Parrallely apply transformations to each chunk
+results <- parLapply(cl, chunks, function(x) { # Parrallely apply transformations to each chunk. Transforming raw text as is to save processing overhead as content_transformers required looping through all the data which slowed it down. This code chunk can even handle the full dataset fairly quick.
   x %>% # for each string
     emoji_transformer() %>% # Remove emojis
     replace_contraction() %>% # Remove contractions
@@ -90,10 +89,10 @@ results <- parLapply(cl, chunks, function(x) { # Parrallely apply transformation
     str_squish() # basically removeWhitespace but better suited to the current set up.
 })
 
-stopCluster(cl)
+stopCluster(cl) # stop cluster
 
 processed_data <- cleaned_data %>%
-  mutate(review_processed = unlist(results)) # WHAT ID DID and did not -select orignial reviews coloumn as i wanted easy access to compare the text pre and post processing
+  mutate(review_processed = unlist(results)) # keep orignial reviews coloumn and make a new one as I wanted easy access to compare the text pre and post processing
 
 
 # Containerize
@@ -142,7 +141,7 @@ kresult <- searchK( # fits models for specified values of k to provided diagnost
 stopCluster(lc2) # Stop cluster to free resources
 registerDoSEQ() # End parallel execution in backend and go back to sequential processing
 
-plot(kresult)
+plot(kresult) # plot kresults to assess number of topics to use
 
 topic_model <- stm(dtm_stm$documents, # fit the final topic model
                    dtm_stm$vocab, 
@@ -198,9 +197,6 @@ topics_tokens_tbl <- topics_tbl %>%
 
 
 
-
-
-
 # embeddings 
 embed_cols <- str_c("emb_", 1:768) # set cols for each individual embedding
 
@@ -221,7 +217,6 @@ embedding_df <- imap(cleaned_data$review, function(text, i) { # use element and 
   select(doc_id, everything())
 
 embedding_df_filtered <- embedding_df %>% filter(doc_id %in% docs_kept) #filter so only embeddings from docs that survived sparcity removal are kept
-
 
 
 
@@ -278,28 +273,28 @@ token_topic_embed_mtry <- c(256, 384, 585)
 
 
 
-# Models
+# Model Functions
 run_lm <- function(data) { # turn lm model training into function to avoid retyping
   train(
-    overall_rating ~ .,
-    data = as.data.frame(data),
-    na.action = na.pass,
+    overall_rating ~ ., # predict ratings based on everything else
+    data = as.data.frame(data), # As dataframe to fix bug
+    na.action = na.pass, # selecting something, but there are no nas
     method = "lm",
-    preProcess = c("zv", "center", "scale", "medianImpute"),
-    trControl = cross_val_control
+    preProcess = c("zv", "center", "scale", "medianImpute"), # conventional preprocessing
+    trControl = cross_val_control # use coded traincontrol object
   )
 }
 
 
 run_elastic <- function(data) { # turn elstic model training into function to avoid retyping
   train(
-    overall_rating ~ .,
-    data = as.data.frame(data),
-    na.action = na.pass,
+    overall_rating ~ ., 
+    data = as.data.frame(data), # as dataframe to fix bug
+    na.action = na.pass, # selecting something, but there are no nas
     method = "glmnet",
-    preProcess = c("zv", "center", "scale", "medianImpute"),
+    preProcess = c("zv", "center", "scale", "medianImpute"), # conventional preprocessing
     tuneGrid = expand.grid(
-      alpha = c(0, 1),
+      alpha = c(0, 1), # alphas chosen 0, 1 to make glmnet process as elastic net
       lambda = seq(0.001, 0.1, length = 10)
     ),
     trControl = cross_val_control
@@ -308,7 +303,7 @@ run_elastic <- function(data) { # turn elstic model training into function to av
 
 
 run_elastic_simple <- function(data) {
-  data <- as.data.frame(data)
+  data <- as.data.frame(data) # as dataframe for a bug fix
 
   # count predictors (exclude outcome)
   predictor_count <- ncol(data) - 1
@@ -321,11 +316,11 @@ run_elastic_simple <- function(data) {
   train(
     overall_rating ~ .,
     data = data,
-    na.action = na.pass,
+    na.action = na.pass, # selecting something, but there are no nas
     method = "glmnet",
-    preProcess = c("center", "scale", "medianImpute"),
+    preProcess = c("center", "scale", "medianImpute"), # Centered, scaled, and imputed data, removed zv as it messed with the data.
     tuneGrid = expand.grid(
-      alpha = c(0, 1),
+      alpha = c(0, 1), # alphas chosen 0, 1 to make glmnet process as elastic net
       lambda = seq(0.001, 0.1, length = 3)
     ),
     trControl = cross_val_control
@@ -336,12 +331,12 @@ run_elastic_simple <- function(data) {
 run_rf <- function(data, mtry_vals) {
   train( # turn random forest model training into function to avoid retyping
     overall_rating ~ .,
-    data = as.data.frame(data),
-    na.action = na.pass,
+    data = as.data.frame(data), # as dataframe to fix a bug below
+    na.action = na.pass, # selecting something, but there are no nas
     method = "ranger",
-    preProcess = c("zv", "center", "scale", "medianImpute"),
+    preProcess = c("zv", "center", "scale", "medianImpute"), # conventional preprocessing
     tuneGrid = expand.grid(
-      mtry = mtry_vals,
+      mtry = mtry_vals, # MTRY values calculated above
       splitrule = c("variance", "extratrees"),
       min.node.size = 20 # i'd normally do 5, but my laptop was hot enough to be concerning so I reduced it. I realize that I am sacrificing some quality here though
     ),
@@ -349,7 +344,6 @@ run_rf <- function(data, mtry_vals) {
     num.trees = 200 # reduced trees to ease processing. With a sample this big it probably does not make a huge deal, but would require more testing to be sure
   )
 }
-
 
 # Linear models
 model1 <- run_lm(token_data) # You'll notice these are all their own line of code rather than a loop or apply. just a preference thing. I didnt want to add steps to what I just got working here at great effort.
@@ -423,8 +417,6 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 
 
 
-
-
 #   RQ2. Does the use of topics improve prediction of satisfaction beyond a rigorous tokenization strategy?
 
 # Answer: It depends on the model. For the linear model and elastic net models there was no noticable improvement in prediction when adding topic to existing tokenization strategy. In fact for the linear model it actually slightly reduced cross-validated R^2 (-0.004) though whether thats a meaningful difference is another question.
@@ -432,8 +424,6 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 # For the Random Forest model, however, adding topic increased cross-validated R^2 by 0.01 and holdout R^2 by 0.021 which is improvement and it slightly reduced holdout RMSE which indicates reduced error both are good signs that topic should be added if using random forest. 
 
 # Used in console: print(final_results_tbl %>% filter(predictors %in% c("token", "token_topic")))
-
-
 
 
 
@@ -445,8 +435,6 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 
 
 
-
-
 #   RQ4. What is the best prediction of overall job satisfaction achievable using text reviews as source data?
 
 # Answer: The best prediction of overall job satisfaction using the provided information is an elastic net model using tokens and embeddings. It has the largest overall holdout R^2 and lowest holdout RMSE, slightly out performing the elastic net model using all available variables.
@@ -455,8 +443,4 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 # Used in console: and to be safe: final_results_tbl %>% arrange(ho_RMSE) %>% head(6)
 
 
-
-
-
 save.image("../out/workspace.RData") # As per instructions I used rm() to get rid of word heavy objects in the environment inorder to get it to a size that allows it to be pushed to github. I left my cleaned_data sample in an effort to be as reproducable as possible, but I had to remove the models from the environment becuase several of them were on their own bigger than github allows for files. it was this or not being able to upload the file to github. If it looks a bit choppy it's becuase I tried all I could to remove other things prior to inevitablly having to remove the models
-
