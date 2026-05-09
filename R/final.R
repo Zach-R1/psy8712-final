@@ -455,5 +455,8 @@ final_results_tbl <- cv_results_tbl %>% left_join(ho_results_tbl, by = c("model"
 # Used in console: and to be safe: final_results_tbl %>% arrange(ho_RMSE) %>% head(6)
 
 
-save.image("../out/workspace.RData")
+
+
+
+save.image("../out/workspace.RData") # As per instructions I used rm() to get rid of word heavy objects in the environment inorder to get it to a size that allows it to be pushed to github. I left my cleaned_data sample in an effort to be as reproducable as possible, but I had to remove the models from the environment becuase several of them were on their own bigger than github allows for files. it was this or not being able to upload the file to github. If it looks a bit choppy it's becuase I tried all I could to remove other things prior to inevitablly having to remove the models
 
