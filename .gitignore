@@ -4,3 +4,4 @@
 .Ruserdata
 *.CSV
 data/intermediate_tbl.csv
+*.RData
