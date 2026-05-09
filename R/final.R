@@ -114,7 +114,7 @@ review_slim_dtm <- removeSparseTerms(review_dtm, .9991) # Removed sparce terms w
 # N <- nrow(review_dtm)
 # N
 # 
-# lower_k <- N / 3  # maybe delete and just comment!!!!!!!!!!!!!!!!!!!!!!
+# lower_k <- N / 3  
 # upper_k <- N / 2
 # lower_k
 # upper_k
